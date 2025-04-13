@@ -4,157 +4,319 @@ const pool = require('../db');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const auth = require('../middleware/auth');
+require('dotenv').config();
 
-// Register new user
+/**
+ * @route POST /users/register
+ * @desc Регистрация нового пользователя
+ * @access Public
+ */
 router.post('/register', async (req, res) => {
-    try {
-        const { name, email, password } = req.body;
+    const { name, email, password } = req.body;
 
-        // Validate input
-        if (!name || !email || !password) {
-            return res.status(400).json({ error: 'All fields are required' });
+    if (!name || !email || !password) {
+        return res.status(400).json({
+            success: false,
+            error: 'Все поля (name, email, password) обязательны'
+        });
+    }
+
+    try {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({
+                success: false,
+                error: 'Некорректный формат email'
+            });
         }
 
-        // Check if user exists
-        const [existing] = await pool.query(
-            'SELECT id FROM users WHERE email = ?',
+        const [existingUser] = await pool.query(
+            'SELECT id FROM users WHERE email = ? LIMIT 1',
             [email]
         );
 
-        if (existing.length > 0) {
-            return res.status(400).json({ error: 'Email already in use' });
+        if (existingUser.length > 0) {
+            return res.status(409).json({
+                success: false,
+                error: 'Пользователь с таким email уже существует'
+            });
         }
 
-        // Hash password
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
 
-        // Create user
         const [result] = await pool.query(
             'INSERT INTO users (name, email, password) VALUES (?, ?, ?)',
             [name, email, hashedPassword]
         );
 
-        // Generate token
         const token = jwt.sign(
             { userId: result.insertId },
             process.env.JWT_SECRET,
             { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
         );
 
-        res.status(201).json({
+        const [newUser] = await pool.query(
+            'SELECT id, name, email, role FROM users WHERE id = ?',
+            [result.insertId]
+        );
+
+        return res.status(201).json({
+            success: true,
             token,
-            user: {
-                id: result.insertId,
-                name,
-                email,
-                role: 'user'
-            }
+            user: newUser[0]
         });
+
     } catch (err) {
-        console.error('Registration error:', err);
-        res.status(500).json({ error: 'Registration failed' });
+        console.error('Ошибка регистрации:', err);
+        return res.status(500).json({
+            success: false,
+            error: 'Ошибка сервера при регистрации'
+        });
     }
 });
 
-// Login user
+/**
+ * @route POST /users/login
+ * @desc Авторизация пользователя
+ * @access Public
+ */
 router.post('/login', async (req, res) => {
-    try {
-        const { email, password } = req.body;
+    const { email, password } = req.body;
 
-        // Find user
+    if (!email || !password) {
+        return res.status(400).json({
+            success: false,
+            error: 'Email и password обязательны'
+        });
+    }
+
+    try {
         const [users] = await pool.query(
-            'SELECT * FROM users WHERE email = ?',
+            'SELECT * FROM users WHERE email = ? LIMIT 1',
             [email]
         );
 
         if (users.length === 0) {
-            return res.status(401).json({ error: 'Invalid credentials' });
+            return res.status(401).json({
+                success: false,
+                error: 'Неверные учетные данные'
+            });
         }
 
         const user = users[0];
-
-        // Check password
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-            return res.status(401).json({ error: 'Invalid credentials' });
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+        if (!isPasswordValid) {
+            return res.status(401).json({
+                success: false,
+                error: 'Неверные учетные данные'
+            });
         }
 
-        // Generate token
         const token = jwt.sign(
             { userId: user.id },
             process.env.JWT_SECRET,
             { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
         );
 
-        res.json({
+        const userData = {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role
+        };
+
+        return res.json({
+            success: true,
             token,
-            user: {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                role: user.role
-            }
+            user: userData
+        });
+
+    } catch (err) {
+        console.error('Ошибка авторизации:', err);
+        return res.status(500).json({
+            success: false,
+            error: 'Ошибка сервера при авторизации'
+        });
+    }
+});
+
+/**
+ * @route GET /users/me
+ * @desc Получение данных текущего пользователя
+ * @access Private
+ */
+router.get('/me', auth, async (req, res) => {
+    try {
+        return res.json({
+            success: true,
+            user: req.user
         });
     } catch (err) {
-        console.error('Login error:', err);
-        res.status(500).json({ error: 'Login failed' });
+        console.error('Ошибка получения данных:', err);
+        return res.status(500).json({
+            success: false,
+            error: 'Ошибка при получении данных пользователя'
+        });
     }
 });
 
-// Get user profile
-router.get('/:id', auth, async (req, res) => {
+/**
+ * @route GET /users/:id/loans
+ * @desc Получение списка взятых книг пользователя
+ * @access Private
+ */
+router.get('/:id/loans', auth, async (req, res) => {
     try {
-        // Only allow users to access their own profile
-        if (parseInt(req.params.id) !== req.user.id) {
-            return res.status(403).json({ error: 'Unauthorized' });
+        if (parseInt(req.params.id) !== req.user.id && req.user.role !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                error: 'Доступ запрещен'
+            });
         }
 
-        const [users] = await pool.query(
-            'SELECT id, name, email, role, created_at FROM users WHERE id = ?',
-            [req.params.id]
-        );
+        const [loans] = await pool.query(`
+            SELECT
+                l.id as loan_id,
+                b.id as book_id,
+                b.title,
+                b.author,
+                b.cover_initials,
+                l.borrowed_date,
+                l.due_date,
+                l.returned_date,
+                l.is_returned,
+                CASE
+                    WHEN l.is_returned THEN 'Returned'
+                    WHEN l.due_date < NOW() THEN 'Overdue'
+                    ELSE 'Active'
+                    END as status,
+                DATEDIFF(l.due_date, CURDATE()) as days_remaining
+            FROM loans l
+                     JOIN books b ON l.book_id = b.id
+            WHERE l.user_id = ?
+            ORDER BY
+                CASE
+                    WHEN l.is_returned = 0 AND l.due_date < NOW() THEN 1
+                    WHEN l.is_returned = 0 THEN 2
+                    ELSE 3
+                    END,
+                l.due_date ASC
+        `, [req.params.id]);
 
-        if (users.length === 0) {
-            return res.status(404).json({ error: 'User not found' });
-        }
+        return res.json({
+            success: true,
+            loans: loans || []
+        });
 
-        res.json({ user: users[0] });
     } catch (err) {
-        console.error('Profile error:', err);
-        res.status(500).json({ error: 'Failed to fetch profile' });
+        console.error('Ошибка получения списка книг:', err);
+        return res.status(500).json({
+            success: false,
+            error: 'Ошибка сервера при загрузке взятых книг'
+        });
     }
 });
 
-// Update user profile
+/**
+ * @route PUT /users/:id
+ * @desc Обновление данных пользователя
+ * @access Private
+ */
 router.put('/:id', auth, async (req, res) => {
     try {
-        // Only allow users to update their own profile
         if (parseInt(req.params.id) !== req.user.id) {
-            return res.status(403).json({ error: 'Unauthorized' });
+            return res.status(403).json({
+                success: false,
+                error: 'Доступ запрещен'
+            });
         }
 
-        const { name, email } = req.body;
+        const { name, email, currentPassword, newPassword } = req.body;
 
-        // Validate input
         if (!name || !email) {
-            return res.status(400).json({ error: 'Name and email are required' });
+            return res.status(400).json({
+                success: false,
+                error: 'Имя и email обязательны'
+            });
         }
 
-        await pool.query(
-            'UPDATE users SET name = ?, email = ? WHERE id = ?',
-            [name, email, req.params.id]
+        const [existing] = await pool.query(
+            'SELECT id FROM users WHERE email = ? AND id != ? LIMIT 1',
+            [email, req.params.id]
         );
 
+        if (existing.length > 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'Email уже используется другим пользователем'
+            });
+        }
+
+        if (newPassword) {
+            if (!currentPassword) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Текущий пароль обязателен для смены пароля'
+                });
+            }
+
+            const [user] = await pool.query(
+                'SELECT password FROM users WHERE id = ? LIMIT 1',
+                [req.params.id]
+            );
+
+            const isMatch = await bcrypt.compare(currentPassword, user[0].password);
+            if (!isMatch) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Текущий пароль неверен'
+                });
+            }
+
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+            await pool.query(
+                'UPDATE users SET name = ?, email = ?, password = ? WHERE id = ?',
+                [name, email, hashedPassword, req.params.id]
+            );
+        } else {
+            await pool.query(
+                'UPDATE users SET name = ?, email = ? WHERE id = ?',
+                [name, email, req.params.id]
+            );
+        }
+
         const [updatedUser] = await pool.query(
-            'SELECT id, name, email, role, created_at FROM users WHERE id = ?',
+            'SELECT id, name, email, role FROM users WHERE id = ? LIMIT 1',
             [req.params.id]
         );
 
-        res.json({ user: updatedUser[0] });
+        return res.json({
+            success: true,
+            user: updatedUser[0]
+        });
+
     } catch (err) {
-        console.error('Update error:', err);
-        res.status(500).json({ error: 'Failed to update profile' });
+        console.error('Ошибка обновления:', err);
+        return res.status(500).json({
+            success: false,
+            error: 'Ошибка сервера при обновлении профиля'
+        });
     }
+});
+
+/**
+ * @route POST /users/logout
+ * @desc Выход из системы
+ * @access Private
+ */
+router.post('/logout', auth, (req, res) => {
+    return res.json({
+        success: true,
+        message: 'Выход выполнен успешно'
+    });
 });
 
 module.exports = router;

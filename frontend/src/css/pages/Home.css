@@ -1,10 +1,12 @@
+/* Books Grid */
 .books-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: 20px;
     padding: 20px;
 }
 
+/* Book Card */
 .book-card {
     border: 1px solid #ddd;
     border-radius: 8px;
@@ -17,6 +19,7 @@
     box-shadow: 0 5px 15px rgba(0,0,0,0.1);
 }
 
+/* Book Cover */
 .book-cover {
     height: 120px;
     background-color: #f0f0f0;
@@ -29,16 +32,57 @@
     border-radius: 4px;
 }
 
-.loading-container, .error-container {
-    text-align: center;
-    padding: 40px;
-}
-
-.retry-btn {
-    padding: 8px 16px;
-    background: #3498db;
+/* Buttons */
+.borrow-btn {
+    background-color: #3498db;
     color: white;
     border: none;
+    padding: 8px 16px;
     border-radius: 4px;
     cursor: pointer;
+    margin-top: 10px;
+    width: 100%;
+    transition: background-color 0.3s;
+}
+
+.borrow-btn:hover:not(:disabled) {
+    background-color: #2980b9;
+}
+
+.borrow-btn.disabled {
+    background-color: #95a5a6;
+    cursor: not-allowed;
+}
+
+/* Messages */
+.success-message {
+    background-color: #d4edda;
+    color: #155724;
+    padding: 10px;
+    border-radius: 4px;
+    margin: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.error-container {
+    text-align: center;
+    padding: 40px;
+    color: #721c24;
+    background-color: #f8d7da;
+    border-radius: 8px;
+    margin: 20px;
+}
+
+.loading-container {
+    text-align: center;
+    padding: 40px;
+    font-size: 1.2rem;
+}
+
+.login-notice {
+    color: #6c757d;
+    font-style: italic;
+    margin-top: 10px;
 }
