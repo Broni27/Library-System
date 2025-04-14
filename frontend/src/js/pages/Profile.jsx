@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import '../../css/pages/Profile.css';
 
 function Profile({ currentUser, setUser }) {
@@ -15,30 +15,30 @@ function Profile({ currentUser, setUser }) {
         confirmPassword: ''
     });
     const { id } = useParams();
-    const navigate = useNavigate();
 
-    // Загрузка данных профиля и займов
+    // Загрузка данных при монтировании
     useEffect(() => {
         const fetchData = async () => {
             try {
                 setLoading(true);
                 setError(null);
 
-                // Убедимся, что currentUser существует
+                // Проверяем, что currentUser загружен
                 if (!currentUser) {
                     throw new Error('User data not loaded');
                 }
 
+                // Устанавливаем данные формы
                 setFormData({
-                    name: currentUser.name,
-                    email: currentUser.email,
+                    name: currentUser.name || '',
+                    email: currentUser.email || '',
                     currentPassword: '',
                     newPassword: '',
                     confirmPassword: ''
                 });
 
                 // Загружаем займы
-                const response = await fetch(
+                const loansResponse = await fetch(
                     `http://localhost:5000/users/${id}/loans`,
                     {
                         headers: {
@@ -47,19 +47,15 @@ function Profile({ currentUser, setUser }) {
                     }
                 );
 
-                if (!response.ok) {
-                    throw new Error('Failed to load loan data');
+                if (!loansResponse.ok) {
+                    throw new Error('Failed to load loans');
                 }
 
-                const data = await response.json();
+                const loansData = await loansResponse.json();
+                setLoans(loansData.loans || []);
 
-                if (!data.success) {
-                    throw new Error(data.error || 'Failed to load loans');
-                }
-
-                setLoans(data.loans || []);
             } catch (err) {
-                console.error('Error fetching data:', err);
+                console.error('Error loading profile data:', err);
                 setError(err.message);
             } finally {
                 setLoading(false);
@@ -68,6 +64,37 @@ function Profile({ currentUser, setUser }) {
 
         fetchData();
     }, [id, currentUser]);
+
+    const handleReturnBook = async (bookId) => {
+        try {
+            setError(null);
+
+            const response = await fetch(
+                `http://localhost:5000/books/${bookId}/return`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.error || 'Return failed');
+            }
+
+            // Обновляем список займов
+            const updatedLoans = loans.filter(loan => loan.book_id !== bookId);
+            setLoans(updatedLoans);
+
+        } catch (err) {
+            console.error('Return error:', err);
+            setError(err.message);
+        }
+    };
 
     const handleInputChange = (e) => {
         const { name, value } = e.target;
@@ -109,30 +136,12 @@ function Profile({ currentUser, setUser }) {
                 throw new Error(data.error || 'Update failed');
             }
 
-            // Обновляем данные пользователя в состоянии приложения
-            if (setUser && typeof setUser === 'function') {
+            // Обновляем данные пользователя
+            if (setUser) {
                 setUser(data.user);
-
-                // Обновляем токен, если изменился email
-                if (data.token) {
-                    localStorage.setItem('token', data.token);
-                }
-            } else {
-                console.error('setUser is not a function');
-                // Если setUser не доступен, перезагружаем страницу
-                window.location.reload();
-                return;
             }
 
             setIsEditing(false);
-
-            // Очищаем поля паролей
-            setFormData(prev => ({
-                ...prev,
-                currentPassword: '',
-                newPassword: '',
-                confirmPassword: ''
-            }));
 
         } catch (err) {
             console.error('Update error:', err);
@@ -140,16 +149,15 @@ function Profile({ currentUser, setUser }) {
         }
     };
 
-
     if (loading) {
-        return <div className="loading">Loading...</div>;
+        return <div className="loading">Loading profile data...</div>;
     }
 
-    if (error && !isEditing) {
+    if (error) {
         return (
             <div className="error">
                 Error: {error}
-                <button onClick={() => setError(null)}>Try Again</button>
+                <button onClick={() => window.location.reload()}>Refresh</button>
             </div>
         );
     }
@@ -204,7 +212,7 @@ function Profile({ currentUser, setUser }) {
                         </div>
 
                         <div className="form-group">
-                            <label>Current Password (for verification)</label>
+                            <label>Current Password</label>
                             <input
                                 type="password"
                                 name="currentPassword"
@@ -246,15 +254,15 @@ function Profile({ currentUser, setUser }) {
                     <div className="profile-info">
                         <div className="info-row">
                             <span className="info-label">Name:</span>
-                            <span className="info-value">{currentUser.name}</span>
+                            <span className="info-value">{currentUser?.name || 'Not available'}</span>
                         </div>
                         <div className="info-row">
                             <span className="info-label">Email:</span>
-                            <span className="info-value">{currentUser.email}</span>
+                            <span className="info-value">{currentUser?.email || 'Not available'}</span>
                         </div>
                         <div className="info-row">
                             <span className="info-label">Role:</span>
-                            <span className="info-value">{currentUser.role}</span>
+                            <span className="info-value">{currentUser?.role || 'User'}</span>
                         </div>
                     </div>
                 )}
@@ -272,21 +280,29 @@ function Profile({ currentUser, setUser }) {
                             <div key={loan.loan_id} className="loan-item">
                                 <div className="book-cover">
                                     {loan.cover_initials ||
-                                        `${loan.title.charAt(0)}${loan.author.charAt(0)}`}
+                                        `${loan.title?.charAt(0)}${loan.author?.charAt(0)}`}
                                 </div>
                                 <div className="loan-info">
-                                    <h3>{loan.title}</h3>
-                                    <p>by {loan.author}</p>
+                                    <h3>{loan.title || 'Unknown book'}</h3>
+                                    <p>by {loan.author || 'Unknown author'}</p>
                                     <div className="loan-meta">
-                                        <span className={`status ${loan.status.toLowerCase()}`}>
-                                            {loan.status}
+                                        <span className={`status ${loan.status?.toLowerCase()}`}>
+                                            {loan.status || 'Active'}
                                         </span>
-                                        <span>Due: {new Date(loan.due_date).toLocaleDateString()}</span>
+                                        <span>Due: {loan.due_date ? new Date(loan.due_date).toLocaleDateString() : 'Not specified'}</span>
                                         {loan.days_remaining && loan.status === 'Active' && (
                                             <span>Days left: {loan.days_remaining}</span>
                                         )}
                                     </div>
                                 </div>
+                                {loan.status === 'Active' && (
+                                    <button
+                                        className="return-button"
+                                        onClick={() => handleReturnBook(loan.book_id)}
+                                    >
+                                        Return
+                                    </button>
+                                )}
                             </div>
                         ))}
                     </div>
