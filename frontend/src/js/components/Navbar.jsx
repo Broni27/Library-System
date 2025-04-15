@@ -25,7 +25,9 @@ const Navbar = ({ user, setUser }) => {
                 )}
 
                 {user?.role === 'admin' && (
-                    <Link to="/admin" className="nav-link">Admin Panel</Link>
+                    <Link to="/admin" className="nav-link">
+                        <i className="fas fa-cog"></i> Admin Panel
+                    </Link>
                 )}
             </div>
 

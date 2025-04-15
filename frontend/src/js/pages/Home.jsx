@@ -12,29 +12,21 @@ function Home({ user }) {
             setLoading(true);
             setError(null);
 
-            console.log("Fetching books from API...");
             const response = await fetch('http://localhost:5000/books');
 
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                throw new Error('Ошибка загрузки');
             }
 
-            const data = await response.json();
-            console.log("API response:", data);
+            const result = await response.json();
 
-            if (!data.success) {
-                throw new Error(data.error || 'Failed to load books');
+            if (!result.success || !Array.isArray(result.data)) {
+                throw new Error('Некорректный формат данных');
             }
 
-            if (!Array.isArray(data.data)) {
-                throw new Error('Invalid data format received');
-            }
-
-            console.log(`Loaded ${data.data.length} books`);
-            setBooks(data.data);
+            setBooks(result.data); // Устанавливаем все полученные книги
 
         } catch (err) {
-            console.error('Error fetching books:', err);
             setError(err.message);
         } finally {
             setLoading(false);
@@ -70,6 +62,15 @@ function Home({ user }) {
                 throw new Error(result.error || 'Borrow failed');
             }
 
+            // Форматируем дату правильно
+            const dueDate = new Date(result.loan.due_date);
+            const formattedDate = dueDate.toLocaleDateString('en-US', {
+                weekday: 'long', // "Monday"
+                month: 'long',   // "January"
+                day: 'numeric',  // "1"
+                year: 'numeric'  // "2023"
+            });
+
             setBooks(prevBooks =>
                 prevBooks.map(book =>
                     book.id === bookId
@@ -78,7 +79,7 @@ function Home({ user }) {
                 )
             );
 
-            setSuccessMsg(`Book borrowed! Due: ${new Date(result.due_date).toLocaleDateString()}`);
+            setSuccessMsg(`Book borrowed! Due: ${formattedDate}`);
             setTimeout(() => setSuccessMsg(null), 5000);
 
         } catch (err) {

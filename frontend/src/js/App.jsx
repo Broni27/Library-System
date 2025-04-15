@@ -4,7 +4,65 @@ import Navbar from './components/Navbar';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Profile from './pages/Profile';
+import AdminPanel from './pages/AdminPanel'; // Импортируем компонент AdminPanel
 import '../css/App.css';
+
+// Компонент для защиты маршрутов с проверкой роли
+const RequireAuth = ({ children, role }) => {
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const navigate = useNavigate();
+
+    useEffect(() => {
+        const checkAuth = async () => {
+            try {
+                const token = localStorage.getItem('token');
+                if (!token) {
+                    navigate('/login');
+                    return;
+                }
+
+                const response = await fetch('http://localhost:5000/users/me', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Session expired');
+                }
+
+                const data = await response.json();
+                if (data.user) {
+                    setUser(data.user);
+                    // Проверяем роль пользователя
+                    if (role && data.user.role !== role) {
+                        navigate('/'); // Перенаправляем на главную, если нет доступа
+                    }
+                }
+            } catch (err) {
+                console.error('Auth check error:', err);
+                localStorage.removeItem('token');
+                navigate('/login');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        checkAuth();
+    }, [navigate, role]);
+
+    if (loading) {
+        return (
+            <div className="page-loading">
+                <div className="spinner"></div>
+                <p>Проверка доступа...</p>
+            </div>
+        );
+    }
+
+    return user ? children : <Navigate to="/login" />;
+};
 
 function App() {
     const [user, setUser] = useState(null);
@@ -109,6 +167,19 @@ function App() {
                             ) : (
                                 <Navigate to="/login" />
                             )
+                        }
+                    />
+
+                    {/* Новый маршрут для админ-панели */}
+                    <Route
+                        path="/admin"
+                        element={
+                            <RequireAuth role="admin">
+                                <AdminPanel
+                                    user={user}
+                                    onError={handleError}
+                                />
+                            </RequireAuth>
                         }
                     />
 
