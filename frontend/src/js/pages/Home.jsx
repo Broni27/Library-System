@@ -113,11 +113,6 @@ function Home({ user }) {
 
     // Borrowing a book
     const handleBorrow = async (bookId) => {
-        if (!user) {
-            setError('Please login to borrow books');
-            return;
-        }
-
         try {
             const response = await fetch(
                 `http://localhost:5000/books/${bookId}/borrow`,
@@ -231,7 +226,7 @@ function Home({ user }) {
                                 <p className="author">by {book.author}</p>
 
                                 <div className="book-meta">
-                                   <p>{book.genre && <span className="genre">Genre: {book.genre}</span>}</p>
+                                    <p>{book.genre && <span className="genre">Genre: {book.genre}</span>}</p>
                                     {book.publication_year && (
                                         <p>   <span className="year">Publication Year: {book.publication_year}</span></p>
                                     )}
@@ -249,19 +244,21 @@ function Home({ user }) {
                                 )}
                             </div>
 
-                            <button
-                                className={`borrow-btn ${!isAvailable ? 'disabled' : ''}`}
-                                onClick={() => handleBorrow(book.id)}
-                                disabled={!isAvailable || !user}
-                            >
-                                {isAvailable ? (
-                                    <>
-                                        <i className="fas fa-book-open"></i> Borrow
-                                    </>
-                                ) : (
-                                    'Unavailable'
-                                )}
-                            </button>
+                            {user && (
+                                <button
+                                    className={`borrow-btn ${!isAvailable ? 'disabled' : ''}`}
+                                    onClick={() => handleBorrow(book.id)}
+                                    disabled={!isAvailable}
+                                >
+                                    {isAvailable ? (
+                                        <>
+                                            <i className="fas fa-book-open"></i> Borrow
+                                        </>
+                                    ) : (
+                                        'Unavailable'
+                                    )}
+                                </button>
+                            )}
                         </div>
                     );
                 })}

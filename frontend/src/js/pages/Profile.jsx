@@ -21,8 +21,10 @@ function Profile({ currentUser, setUser }) {
     const [deletePassword, setDeletePassword] = useState('');
     const [deleteError, setDeleteError] = useState('');
     const [isDeleting, setIsDeleting] = useState(false);
+    const [validationErrors, setValidationErrors] = useState({
+        password: ''
+    });
 
-    // Load profile data and loans
     useEffect(() => {
         let isMounted = true;
 
@@ -34,7 +36,6 @@ function Profile({ currentUser, setUser }) {
                     return;
                 }
 
-                // Get user profile
                 const userResponse = await fetch('http://localhost:5000/users/me', {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
@@ -43,7 +44,6 @@ function Profile({ currentUser, setUser }) {
 
                 const { user } = await userResponse.json();
 
-                // Get user loans
                 const loansResponse = await fetch(`http://localhost:5000/users/${user.id}/loans`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
@@ -78,7 +78,14 @@ function Profile({ currentUser, setUser }) {
         return () => { isMounted = false; };
     }, [id, navigate]);
 
-    // Update profile
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({
+            ...prev,
+            [name]: value
+        }));
+    };
+
     const handleUpdateProfile = async (e) => {
         e.preventDefault();
         try {
@@ -106,7 +113,6 @@ function Profile({ currentUser, setUser }) {
         }
     };
 
-    // Return a single book
     const handleReturnBook = async (loanId) => {
         try {
             setError(null);
@@ -133,13 +139,21 @@ function Profile({ currentUser, setUser }) {
         }
     };
 
-    // Delete account and return all books
+    const validatePassword = () => {
+        if (!deletePassword.trim()) {
+            setValidationErrors({ password: 'Password is required' });
+            return false;
+        }
+        setValidationErrors({ password: '' });
+        return true;
+    };
+
     const handleDeleteAccount = async () => {
+        if (!validatePassword()) return;
+
         try {
             setIsDeleting(true);
             setDeleteError('');
-
-            if (!profileData?.id) throw new Error('User not found');
 
             const token = localStorage.getItem('token');
             if (!token) throw new Error('Not authenticated');
@@ -154,9 +168,15 @@ function Profile({ currentUser, setUser }) {
             });
 
             const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'Deletion failed');
 
-            // Success - logout and redirect
+            if (!response.ok) {
+                if (data.error.toLowerCase().includes('password')) {
+                    setValidationErrors({ password: 'Incorrect password' });
+                    throw new Error(data.error || 'Deletion failed');
+                }
+                throw new Error(data.error || 'Deletion failed');
+            }
+
             localStorage.removeItem('token');
             setUser(null);
             navigate('/login', {
@@ -207,7 +227,6 @@ function Profile({ currentUser, setUser }) {
 
     return (
         <div className="profile-container">
-            {/* Delete Account Modal */}
             {showDeleteModal && (
                 <div className="delete-modal-overlay">
                     <div className="delete-modal">
@@ -217,17 +236,31 @@ function Profile({ currentUser, setUser }) {
                             all {loans.filter(l => l.status === 'active').length} borrowed books.
                         </p>
 
-                        <div className="form-group">
+                        <div className={`form-group ${validationErrors.password ? 'has-error' : ''}`}>
                             <label>Enter your password to confirm:</label>
                             <input
                                 type="password"
                                 value={deletePassword}
-                                onChange={(e) => setDeletePassword(e.target.value)}
+                                onChange={(e) => {
+                                    setDeletePassword(e.target.value);
+                                    if (validationErrors.password) {
+                                        validatePassword();
+                                    }
+                                }}
+                                onBlur={validatePassword}
                                 placeholder="Your password"
+                                className={validationErrors.password ? 'error-input' : ''}
                             />
+                            {validationErrors.password && (
+                                <div className="input-error-message">
+                                    <i className="fas fa-exclamation-circle"></i> {validationErrors.password}
+                                </div>
+                            )}
                         </div>
 
-                        {deleteError && <div className="error-message">{deleteError}</div>}
+                        {deleteError && !validationErrors.password && (
+                            <div className="error-message">{deleteError}</div>
+                        )}
 
                         <div className="modal-actions">
                             <button
@@ -236,6 +269,7 @@ function Profile({ currentUser, setUser }) {
                                     setShowDeleteModal(false);
                                     setDeletePassword('');
                                     setDeleteError('');
+                                    setValidationErrors({ password: '' });
                                 }}
                                 disabled={isDeleting}
                             >
@@ -244,7 +278,7 @@ function Profile({ currentUser, setUser }) {
                             <button
                                 className="delete-button"
                                 onClick={handleDeleteAccount}
-                                disabled={!deletePassword || isDeleting}
+                                disabled={isDeleting}
                             >
                                 {isDeleting ? 'Deleting...' : 'Permanently Delete Account'}
                             </button>
@@ -253,7 +287,6 @@ function Profile({ currentUser, setUser }) {
                 </div>
             )}
 
-            {/* Profile Section */}
             <section className="profile-section">
                 <div className="profile-header">
                     <h2>My Profile</h2>
@@ -367,7 +400,6 @@ function Profile({ currentUser, setUser }) {
                 )}
             </section>
 
-            {/* Loans Section */}
             <section className="loans-section">
                 <h2>My Borrowed Books ({loans.length})</h2>
 
