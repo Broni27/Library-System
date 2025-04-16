@@ -4,10 +4,10 @@ import Navbar from './components/Navbar';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Profile from './pages/Profile';
-import AdminPanel from './pages/AdminPanel'; // Импортируем компонент AdminPanel
+import AdminPanel from './pages/AdminPanel'; // Import AdminPanel component
 import '../css/App.css';
 
-// Компонент для защиты маршрутов с проверкой роли
+// Component for protecting routes with role verification
 const RequireAuth = ({ children, role }) => {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -18,7 +18,7 @@ const RequireAuth = ({ children, role }) => {
             try {
                 const token = localStorage.getItem('token');
                 if (!token) {
-                    navigate('/login');
+                    setLoading(false);
                     return;
                 }
 
@@ -35,9 +35,9 @@ const RequireAuth = ({ children, role }) => {
                 const data = await response.json();
                 if (data.user) {
                     setUser(data.user);
-                    // Проверяем роль пользователя
+                    // Check user role
                     if (role && data.user.role !== role) {
-                        navigate('/'); // Перенаправляем на главную, если нет доступа
+                        navigate('/'); // Redirect to the main page if no access is available
                     }
                 }
             } catch (err) {
@@ -56,7 +56,7 @@ const RequireAuth = ({ children, role }) => {
         return (
             <div className="page-loading">
                 <div className="spinner"></div>
-                <p>Проверка доступа...</p>
+                <p>Access Check...</p>
             </div>
         );
     }
@@ -70,7 +70,7 @@ function App() {
     const [error, setError] = useState(null);
     const navigate = useNavigate();
 
-    // Проверка авторизации при загрузке приложения
+    // Исправленный useEffect
     useEffect(() => {
         const checkAuth = async () => {
             try {
@@ -107,7 +107,7 @@ function App() {
         checkAuth();
     }, []);
 
-    // Обработчик ошибок
+    // Error Handler
     const handleError = (err) => {
         console.error(err);
         setError(err.message);
@@ -170,7 +170,7 @@ function App() {
                         }
                     />
 
-                    {/* Новый маршрут для админ-панели */}
+                    {/* New route for admin panel */}
                     <Route
                         path="/admin"
                         element={

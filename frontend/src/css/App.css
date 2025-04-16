@@ -69,7 +69,7 @@ body {
   padding: 20px;
 }
 
-/* Стили для книг */
+/* Styles for books */
 .books-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));

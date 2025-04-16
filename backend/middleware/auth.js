@@ -2,39 +2,40 @@ const jwt = require('jsonwebtoken');
 const pool = require('../db');
 require('dotenv').config();
 
-/**
- * Middleware аутентификации через JWT
- */
 module.exports = async (req, res, next) => {
     try {
-        // 1. Получаем токен из заголовка
+        // 1. Get the token from the header
         const authHeader = req.header('Authorization');
         if (!authHeader?.startsWith('Bearer ')) {
-            throw new Error('Authorization header missing or invalid');
+            return res.status(401).json({
+                error: 'Authorization header missing or invalid'
+            });
         }
 
         const token = authHeader.replace('Bearer ', '');
 
-        // 2. Верифицируем токен
+        // 2. Verify token
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret_key');
 
-        // 3. Проверяем существование пользователя
+        // 3. Verify the user's existence
         const [users] = await pool.query(
             'SELECT id, name, email, role FROM users WHERE id = ?',
             [decoded.userId]
         );
 
         if (users.length === 0) {
-            throw new Error('User not found');
+            return res.status(401).json({
+                error: 'User not found'
+            });
         }
 
-        // 4. Добавляем пользователя в запрос
+        // 4. Add user to the request
         req.user = users[0];
         next();
     } catch (err) {
         console.error('Authentication error:', err.message);
 
-        // Специальная обработка для истекшего токена
+        // Special handling for expired token
         if (err.name === 'TokenExpiredError') {
             return res.status(401).json({
                 error: 'Session expired',
@@ -42,6 +43,7 @@ module.exports = async (req, res, next) => {
             });
         }
 
+        // Generic error response
         res.status(401).json({
             error: 'Please authenticate',
             details: process.env.NODE_ENV === 'development' ? err.message : undefined

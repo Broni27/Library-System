@@ -11,25 +11,25 @@ const config = {
     connectionLimit: 10
 };
 
-console.log('Конфиг БД:', {
+console.log('// 4. Add the user to the request', {
     ...config,
-    password: config.password ? '***' : 'empty' // Не логируем реальный пароль
+    password: config.password ? '***' : 'empty' // Not logging in the real password
 });
 
 const pool = mysql.createPool(config);
 
-// Тест подключения
+// Connection test
 pool.getConnection()
     .then(conn => {
-        console.log('✅ Успешное подключение к MySQL!');
+        console.log('Successful connection to MySQL!');
         conn.release();
     })
     .catch(err => {
-        console.error('❌ Ошибка подключения к MySQL:', err.message);
-        console.error('Проверьте:');
-        console.error('1. Запущен ли MySQL сервер');
-        console.error('2. Правильные ли credentials в .env');
-        console.error('3. Существует ли БД', config.database);
+        console.error('Error connecting to MySQL:', err.message);
+        console.error('Check it out:');
+        console.error('1. Whether MySQL server is running');
+        console.error('2. Whether the credentials in .env are correct');
+        console.error('3. Does the database exist', config.database);
         process.exit(1);
     });
 

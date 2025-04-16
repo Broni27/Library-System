@@ -7,21 +7,21 @@ const auth = require('../middleware/auth');
 require('dotenv').config();
 
 /**
- * Регистрация нового пользователя
+ * New user registration
  */
 router.post('/register', async (req, res) => {
     const { name, email, password } = req.body;
 
     try {
-        // Валидация
+        // Validation
         if (!name || !email || !password) {
             return res.status(400).json({
                 success: false,
-                error: 'Все поля обязательны'
+                error: 'All fields are required'
             });
         }
 
-        // Проверка email
+        // Email verification
         const [existingUser] = await pool.query(
             'SELECT id FROM users WHERE email = ?',
             [email]
@@ -30,28 +30,28 @@ router.post('/register', async (req, res) => {
         if (existingUser.length > 0) {
             return res.status(409).json({
                 success: false,
-                error: 'Email уже используется'
+                error: 'Email is already in use'
             });
         }
 
-        // Хеширование пароля
+        // Password hashing
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        // Создание пользователя
+        // User creation
         const [result] = await pool.query(
             'INSERT INTO users (name, email, password) VALUES (?, ?, ?)',
             [name, email, hashedPassword]
         );
 
-        // Генерация токена
+        // Token generation
         const token = jwt.sign(
             { userId: result.insertId },
             process.env.JWT_SECRET,
             { expiresIn: '7d' }
         );
 
-        // Ответ с данными пользователя
+        // Response with user data
         const [user] = await pool.query(
             'SELECT id, name, email, role FROM users WHERE id = ?',
             [result.insertId]
@@ -64,22 +64,22 @@ router.post('/register', async (req, res) => {
         });
 
     } catch (err) {
-        console.error('Ошибка регистрации:', err);
+        console.error('Registration error:', err);
         res.status(500).json({
             success: false,
-            error: 'Ошибка сервера'
+            error: 'Server error'
         });
     }
 });
 
 /**
- * Аутентификация пользователя
+ * User authentication
  */
 router.post('/login', async (req, res) => {
     const { email, password } = req.body;
 
     try {
-        // Поиск пользователя
+        // User search
         const [users] = await pool.query(
             'SELECT * FROM users WHERE email = ?',
             [email]
@@ -88,29 +88,29 @@ router.post('/login', async (req, res) => {
         if (users.length === 0) {
             return res.status(401).json({
                 success: false,
-                error: 'Неверные учетные данные'
+                error: 'Incorrect credentials'
             });
         }
 
         const user = users[0];
 
-        // Проверка пароля
+        // Password verification
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
             return res.status(401).json({
                 success: false,
-                error: 'Неверные учетные данные'
+                error: 'Incorrect credentials'
             });
         }
 
-        // Генерация токена
+        // Token generation
         const token = jwt.sign(
             { userId: user.id },
             process.env.JWT_SECRET,
             { expiresIn: '7d' }
         );
 
-        // Формирование ответа
+        // Forming response
         res.json({
             success: true,
             token,
@@ -123,16 +123,16 @@ router.post('/login', async (req, res) => {
         });
 
     } catch (err) {
-        console.error('Ошибка входа:', err);
+        console.error('Login error:', err);
         res.status(500).json({
             success: false,
-            error: 'Ошибка сервера'
+            error: 'Server error'
         });
     }
 });
 
 /**
- * Получение данных текущего пользователя
+ * Retrieving current user data
  */
 router.get('/me', auth, async (req, res) => {
     try {
@@ -141,30 +141,30 @@ router.get('/me', auth, async (req, res) => {
             user: req.user
         });
     } catch (err) {
-        console.error('Ошибка получения данных:', err);
+        console.error('Data retrieval error:', err);
         res.status(500).json({
             success: false,
-            error: 'Ошибка сервера'
+            error: 'Server error'
         });
     }
 });
 
 /**
- * Получение списка книг пользователя
+ * Getting the list of user's books
  */
 router.get('/:id/loans', auth, async (req, res) => {
     try {
-        // Проверка прав доступа
+        // Checking access rights
         if (parseInt(req.params.id) !== req.user.id && req.user.role !== 'admin') {
             return res.status(403).json({
                 success: false,
-                error: 'Доступ запрещен'
+                error: 'Access denied'
             });
         }
 
-        // Запрос книг пользователя
+        // Requesting user's books
         const [loans] = await pool.query(`
-            SELECT 
+            SELECT
                 l.id as loan_id,
                 b.id as book_id,
                 b.title,
@@ -178,9 +178,9 @@ router.get('/:id/loans', auth, async (req, res) => {
                     WHEN l.is_returned = 1 THEN 'returned'
                     WHEN l.due_date < NOW() THEN 'overdue'
                     ELSE 'active'
-                END as status
+                    END as status
             FROM loans l
-            JOIN books b ON l.book_id = b.id
+                     JOIN books b ON l.book_id = b.id
             WHERE l.user_id = ?
             ORDER BY l.is_returned, l.due_date
         `, [req.params.id]);
@@ -191,30 +191,30 @@ router.get('/:id/loans', auth, async (req, res) => {
         });
 
     } catch (err) {
-        console.error('Ошибка получения книг:', err);
+        console.error('Book retrieval error:', err);
         res.status(500).json({
             success: false,
-            error: 'Ошибка сервера'
+            error: 'Server error'
         });
     }
 });
 
 /**
- * Обновление профиля пользователя
+ * Updating a user profile
  */
 router.put('/:id', auth, async (req, res) => {
     try {
-        // Проверка прав
+        // Rights check
         if (parseInt(req.params.id) !== req.user.id) {
             return res.status(403).json({
                 success: false,
-                error: 'Доступ запрещен'
+                error: 'Access denied'
             });
         }
 
         const { name, email, currentPassword, newPassword } = req.body;
 
-        // Обновление данных
+        // Data update
         if (newPassword) {
             const [user] = await pool.query(
                 'SELECT password FROM users WHERE id = ?',
@@ -225,7 +225,7 @@ router.put('/:id', auth, async (req, res) => {
             if (!isMatch) {
                 return res.status(400).json({
                     success: false,
-                    error: 'Неверный текущий пароль'
+                    error: 'Invalid current password'
                 });
             }
 
@@ -243,7 +243,7 @@ router.put('/:id', auth, async (req, res) => {
             );
         }
 
-        // Получение обновленных данных
+        // Receive updated data
         const [updatedUser] = await pool.query(
             'SELECT id, name, email, role FROM users WHERE id = ?',
             [req.params.id]
@@ -255,11 +255,100 @@ router.put('/:id', auth, async (req, res) => {
         });
 
     } catch (err) {
-        console.error('Ошибка обновления:', err);
+        console.error('Update error:', err);
         res.status(500).json({
             success: false,
-            error: 'Ошибка сервера'
+            error: 'Server error'
         });
+    }
+});
+
+/**
+ * Delete user account and return all borrowed books
+ */
+router.delete('/:id', auth, async (req, res) => {
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        const { password } = req.body;
+        const userId = parseInt(req.params.id);
+
+        // Verify user can only delete their own account
+        if (userId !== req.user.id) {
+            return res.status(403).json({
+                success: false,
+                error: 'You can only delete your own account'
+            });
+        }
+
+        // 1. Verify password
+        const [users] = await connection.query(
+            'SELECT password FROM users WHERE id = ?',
+            [userId]
+        );
+
+        if (users.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'User not found'
+            });
+        }
+
+        const isMatch = await bcrypt.compare(password, users[0].password);
+        if (!isMatch) {
+            return res.status(401).json({
+                success: false,
+                error: 'Incorrect password'
+            });
+        }
+
+        // 2. Return all borrowed books
+        const [activeLoans] = await connection.query(
+            `SELECT l.id as loan_id, l.book_id 
+             FROM loans l 
+             WHERE l.user_id = ? AND l.is_returned = 0`,
+            [userId]
+        );
+
+        for (const loan of activeLoans) {
+            // Mark loan as returned
+            await connection.query(
+                `UPDATE loans 
+                 SET returned_date = NOW(), is_returned = 1 
+                 WHERE id = ?`,
+                [loan.loan_id]
+            );
+
+            // Increment book availability
+            await connection.query(
+                `UPDATE books 
+                 SET available_quantity = available_quantity + 1 
+                 WHERE id = ?`,
+                [loan.book_id]
+            );
+        }
+
+        // 3. Delete user account
+        await connection.query('DELETE FROM users WHERE id = ?', [userId]);
+
+        await connection.commit();
+
+        res.json({
+            success: true,
+            message: 'Account deleted and all books returned successfully',
+            booksReturned: activeLoans.length
+        });
+
+    } catch (err) {
+        await connection.rollback();
+        console.error('Delete account error:', err);
+        res.status(500).json({
+            success: false,
+            error: 'Error deleting account'
+        });
+    } finally {
+        connection.release();
     }
 });
 

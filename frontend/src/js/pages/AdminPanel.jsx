@@ -1,111 +1,151 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import BookFilters from '../components/BookFilters';
 import '../../css/pages/AdminPanel.css';
 
-function AdminPanel() {
-    const [activeTab, setActiveTab] = useState('users');
-    const [users, setUsers] = useState([]);
-    const [books, setBooks] = useState([]);
-    const [loading, setLoading] = useState(false);
+function AdminPanel({ user }) {
+    const [activeTab, setActiveTab] = useState('books');
+    const [allBooks, setAllBooks] = useState([]);
+    const [displayedBooks, setDisplayedBooks] = useState([]);
+    const [allUsers, setAllUsers] = useState([]);
+    const [displayedUsers, setDisplayedUsers] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [sortOption, setSortOption] = useState('title');
 
-    // Формы
-    const [newUserForm, setNewUserForm] = useState({
+    // Book form with new fields
+    const [bookForm, setBookForm] = useState({
+        title: '',
+        author: '',
+        isbn: '',
+        genre: '',
+        publication_year: '',
+        quantity: 1
+    });
+
+    const [userForm, setUserForm] = useState({
         name: '',
         email: '',
         password: '',
         role: 'user'
     });
 
-    const [bookForm, setBookForm] = useState({
-        title: '',
-        author: '',
-        isbn: '',
-        genre: '',
-        quantity: 1
-    });
-
     const [editingBook, setEditingBook] = useState(null);
+    const navigate = useNavigate();
 
-    // Загрузка данных
+    // Check administrator rights
     useEffect(() => {
-        if (activeTab === 'users') {
-            fetchUsers();
+        if (user?.role !== 'admin') {
+            navigate('/');
+        }
+    }, [user, navigate]);
+
+    // Loading data
+    useEffect(() => {
+        const fetchData = async () => {
+            try {
+                setLoading(true);
+
+                const [booksRes, usersRes] = await Promise.all([
+                    fetch('http://localhost:5000/books?all=true', {
+                        headers: {
+                            'Authorization': `Bearer ${localStorage.getItem('token')}`
+                        }
+                    }),
+                    fetch('http://localhost:5000/admin/users', {
+                        headers: {
+                            'Authorization': `Bearer ${localStorage.getItem('token')}`
+                        }
+                    })
+                ]);
+
+                if (!booksRes.ok) throw new Error('Failed to load books');
+                if (!usersRes.ok) throw new Error('Failed to load users');
+
+                const booksData = await booksRes.json();
+                const usersData = await usersRes.json();
+
+                setAllBooks(booksData.data || []);
+                setDisplayedBooks(booksData.data || []);
+                setAllUsers(usersData.users || []);
+                setDisplayedUsers(usersData.users || []);
+
+            } catch (err) {
+                setError(err.message);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchData();
+    }, []);
+
+    // Filtering and sorting functions
+    const filterBooks = useCallback((term, option) => {
+        let filtered = [...allBooks];
+
+        if (term) {
+            const searchTerm = term.toLowerCase();
+            filtered = filtered.filter(book =>
+                book.title?.toLowerCase().includes(searchTerm) ||
+                book.author?.toLowerCase().includes(searchTerm) ||
+                book.genre?.toLowerCase().includes(searchTerm) ||
+                book.isbn?.toLowerCase().includes(searchTerm) ||
+                String(book.publication_year)?.includes(searchTerm)
+            );
+        }
+
+        switch(option) {
+            case 'title':
+                filtered.sort((a, b) => a.title.localeCompare(b.title));
+                break;
+            case 'title_desc':
+                filtered.sort((a, b) => b.title.localeCompare(a.title));
+                break;
+            case 'author':
+                filtered.sort((a, b) => a.author.localeCompare(b.author));
+                break;
+            default:
+                break;
+        }
+
+        setDisplayedBooks(filtered);
+    }, [allBooks]);
+
+    const filterUsers = useCallback((term) => {
+        if (!term) {
+            setDisplayedUsers(allUsers);
+            return;
+        }
+
+        const searchTerm = term.toLowerCase();
+        const filtered = allUsers.filter(user =>
+            user.name.toLowerCase().includes(searchTerm) ||
+            user.email.toLowerCase().includes(searchTerm)
+        );
+
+        setDisplayedUsers(filtered);
+    }, [allUsers]);
+
+    // Filter handlers
+    const handleSearch = useCallback((term) => {
+        setSearchTerm(term);
+        if (activeTab === 'books') {
+            filterBooks(term, sortOption);
         } else {
-            fetchBooks();
+            filterUsers(term);
         }
-    }, [activeTab]);
+    }, [activeTab, filterBooks, filterUsers, sortOption]);
 
-    const fetchUsers = async () => {
-        try {
-            setLoading(true);
-            const response = await fetch('http://localhost:5000/admin/users', {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                }
-            });
-            const data = await response.json();
-            setUsers(data.users);
-        } catch (err) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
+    const handleSort = useCallback((option) => {
+        setSortOption(option);
+        if (activeTab === 'books') {
+            filterBooks(searchTerm, option);
         }
-    };
+    }, [activeTab, filterBooks, searchTerm]);
 
-    const fetchBooks = async () => {
-        try {
-            setLoading(true);
-            const response = await fetch('http://localhost:5000/books?all=true', {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                }
-            });
-            const data = await response.json();
-            setBooks(data.data);
-        } catch (err) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Обработчики форм
-    const handleUserInputChange = (e) => {
-        const { name, value } = e.target;
-        setNewUserForm(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleBookInputChange = (e) => {
-        const { name, value } = e.target;
-        setBookForm(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleCreateUser = async (e) => {
-        e.preventDefault();
-        try {
-            const response = await fetch('http://localhost:5000/admin/register', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(newUserForm)
-            });
-
-            if (!response.ok) throw new Error('Registration failed');
-
-            setNewUserForm({
-                name: '',
-                email: '',
-                password: '',
-                role: 'user'
-            });
-            fetchUsers();
-        } catch (err) {
-            setError(err.message);
-        }
-    };
-
+    // CRUD operations for books
     const handleCreateBook = async (e) => {
         e.preventDefault();
         try {
@@ -121,57 +161,74 @@ function AdminPanel() {
                     'Authorization': `Bearer ${localStorage.getItem('token')}`,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(bookForm)
+                body: JSON.stringify({
+                    ...bookForm,
+                    publication_year: bookForm.publication_year || null,
+                    genre: bookForm.genre || null,
+                    isbn: bookForm.isbn || null
+                })
             });
 
             if (!response.ok) throw new Error(editingBook ? 'Update failed' : 'Creation failed');
+
+            const result = await response.json();
+            const updatedBooks = editingBook
+                ? allBooks.map(b => b.id === editingBook.id ? result.book : b)
+                : [...allBooks, result.book];
+
+            setAllBooks(updatedBooks);
+            filterBooks(searchTerm, sortOption);
 
             setBookForm({
                 title: '',
                 author: '',
                 isbn: '',
                 genre: '',
+                publication_year: '',
                 quantity: 1
             });
             setEditingBook(null);
-            fetchBooks();
+
         } catch (err) {
             setError(err.message);
         }
     };
 
-    const handleDeleteUser = async (userId) => {
-        if (!window.confirm('Вы уверены, что хотите удалить пользователя?')) return;
-
+    // CRUD operations for users
+    const handleCreateUser = async (e) => {
+        e.preventDefault();
         try {
-            const response = await fetch(`http://localhost:5000/admin/users/${userId}`, {
-                method: 'DELETE',
+            const response = await fetch('http://localhost:5000/admin/register', {
+                method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                }
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(userForm)
             });
 
-            if (!response.ok) throw new Error('Deletion failed');
+            if (!response.ok) throw new Error('Registration failed');
 
-            fetchUsers();
+            const updatedUsers = [...allUsers, userForm];
+
+            setAllUsers(updatedUsers);
+            filterUsers(searchTerm);
+
+            setUserForm({
+                name: '',
+                email: '',
+                password: '',
+                role: 'user'
+            });
+
         } catch (err) {
             setError(err.message);
         }
     };
 
-    const handleEditBook = (book) => {
-        setEditingBook(book);
-        setBookForm({
-            title: book.title,
-            author: book.author,
-            isbn: book.isbn || '',
-            genre: book.genre || '',
-            quantity: book.quantity
-        });
-    };
-
+    // Deleting a book
     const handleDeleteBook = async (bookId) => {
-        if (!window.confirm('Вы уверены, что хотите удалить книгу?')) return;
+        if (!window.confirm('Are you sure you want to delete this book?')) return;
 
         try {
             const response = await fetch(`http://localhost:5000/books/${bookId}`, {
@@ -181,206 +238,283 @@ function AdminPanel() {
                 }
             });
 
-            if (!response.ok) throw new Error('Deletion failed');
+            if (!response.ok) throw new Error('Delete failed');
 
-            fetchBooks();
+            const updatedBooks = allBooks.filter(book => book.id !== bookId);
+            setAllBooks(updatedBooks);
+            filterBooks(searchTerm, sortOption);
+        } catch (err) {
+            setError(err.message);
+        }
+    };
+
+    // Deleting a user
+    const handleDeleteUser = async (userId) => {
+        if (!window.confirm('Are you sure you want to delete this user?')) return;
+
+        try {
+            const response = await fetch(`http://localhost:5000/admin/users/${userId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+
+            if (!response.ok) throw new Error('Delete failed');
+
+            const updatedUsers = allUsers.filter(user => user.id !== userId);
+            setAllUsers(updatedUsers);
+            filterUsers(searchTerm);
         } catch (err) {
             setError(err.message);
         }
     };
 
     if (loading) {
-        return <div className="loading">Loading...</div>;
+        return <div className="admin-loading">Loading admin data...</div>;
     }
 
     if (error) {
         return (
-            <div className="error">
+            <div className="admin-error">
                 <p>{error}</p>
-                <button onClick={() => setError(null)}>Close</button>
+                <button onClick={() => window.location.reload()}>Retry</button>
             </div>
         );
     }
 
     return (
         <div className="admin-panel">
+            <BookFilters
+                onSearch={handleSearch}
+                onSort={activeTab === 'books' ? handleSort : undefined}
+                showSort={activeTab === 'books'}
+            />
+
             <div className="admin-tabs">
-                <button
-                    className={activeTab === 'users' ? 'active' : ''}
-                    onClick={() => setActiveTab('users')}
-                >
-                    Управление пользователями
-                </button>
                 <button
                     className={activeTab === 'books' ? 'active' : ''}
                     onClick={() => setActiveTab('books')}
                 >
-                    Управление книгами
+                    Manage Books
+                </button>
+                <button
+                    className={activeTab === 'users' ? 'active' : ''}
+                    onClick={() => setActiveTab('users')}
+                >
+                    Manage Users
                 </button>
             </div>
 
-            {activeTab === 'users' ? (
-                <div className="users-management">
-                    <h2>Создать нового пользователя</h2>
-                    <form onSubmit={handleCreateUser} className="user-form">
-                        <div className="form-group">
-                            <label>Имя:</label>
-                            <input
-                                type="text"
-                                name="name"
-                                value={newUserForm.name}
-                                onChange={handleUserInputChange}
-                                required
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label>Email:</label>
-                            <input
-                                type="email"
-                                name="email"
-                                value={newUserForm.email}
-                                onChange={handleUserInputChange}
-                                required
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label>Пароль:</label>
-                            <input
-                                type="password"
-                                name="password"
-                                value={newUserForm.password}
-                                onChange={handleUserInputChange}
-                                required
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label>Роль:</label>
-                            <select
-                                name="role"
-                                value={newUserForm.role}
-                                onChange={handleUserInputChange}
-                            >
-                                <option value="user">Пользователь</option>
-                                <option value="admin">Администратор</option>
-                            </select>
-                        </div>
-                        <button type="submit" className="submit-btn">
-                            Создать пользователя
-                        </button>
-                    </form>
+            {activeTab === 'books' ? (
+                <div className="admin-content">
+                    <form onSubmit={handleCreateBook} className="admin-form">
+                        <h2>{editingBook ? 'Edit Book' : 'Add New Book'}</h2>
 
-                    <h2>Список пользователей</h2>
-                    <div className="users-list">
-                        {users.map(user => (
-                            <div key={user.id} className="user-card">
-                                <div className="user-info">
-                                    <h3>{user.name}</h3>
-                                    <p>Email: {user.email}</p>
-                                    <p>Роль: {user.role === 'admin' ? 'Администратор' : 'Пользователь'}</p>
-                                </div>
-                                <button
-                                    className="delete-btn"
-                                    onClick={() => handleDeleteUser(user.id)}
-                                >
-                                    Удалить
-                                </button>
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label>Title*:</label>
+                                <input
+                                    type="text"
+                                    value={bookForm.title}
+                                    onChange={(e) => setBookForm({...bookForm, title: e.target.value})}
+                                    required
+                                />
                             </div>
-                        ))}
-                    </div>
-                </div>
-            ) : (
-                <div className="books-management">
-                    <h2>{editingBook ? 'Редактировать книгу' : 'Добавить новую книгу'}</h2>
-                    <form onSubmit={handleCreateBook} className="book-form">
-                        <div className="form-group">
-                            <label>Название:</label>
-                            <input
-                                type="text"
-                                name="title"
-                                value={bookForm.title}
-                                onChange={handleBookInputChange}
-                                required
-                            />
+
+                            <div className="form-group">
+                                <label>Author*:</label>
+                                <input
+                                    type="text"
+                                    value={bookForm.author}
+                                    onChange={(e) => setBookForm({...bookForm, author: e.target.value})}
+                                    required
+                                />
+                            </div>
                         </div>
-                        <div className="form-group">
-                            <label>Автор:</label>
-                            <input
-                                type="text"
-                                name="author"
-                                value={bookForm.author}
-                                onChange={handleBookInputChange}
-                                required
-                            />
+
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label>ISBN:</label>
+                                <input
+                                    type="text"
+                                    value={bookForm.isbn}
+                                    onChange={(e) => setBookForm({...bookForm, isbn: e.target.value})}
+                                    placeholder="Optional"
+                                />
+                            </div>
+
+                            <div className="form-group">
+                                <label>Genre:</label>
+                                <input
+                                    type="text"
+                                    value={bookForm.genre}
+                                    onChange={(e) => setBookForm({...bookForm, genre: e.target.value})}
+                                    placeholder="Optional"
+                                />
+                            </div>
                         </div>
-                        <div className="form-group">
-                            <label>ISBN:</label>
-                            <input
-                                type="text"
-                                name="isbn"
-                                value={bookForm.isbn}
-                                onChange={handleBookInputChange}
-                            />
+
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label>Publication Year:</label>
+                                <input
+                                    type="number"
+                                    min="1900"
+                                    max={new Date().getFullYear()}
+                                    value={bookForm.publication_year}
+                                    onChange={(e) => setBookForm({...bookForm, publication_year: e.target.value})}
+                                    placeholder="YYYY"
+                                />
+                            </div>
+
+                            <div className="form-group">
+                                <label>Quantity*:</label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    value={bookForm.quantity}
+                                    onChange={(e) => setBookForm({...bookForm, quantity: e.target.value})}
+                                    required
+                                />
+                            </div>
                         </div>
-                        <div className="form-group">
-                            <label>Жанр:</label>
-                            <input
-                                type="text"
-                                name="genre"
-                                value={bookForm.genre}
-                                onChange={handleBookInputChange}
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label>Количество:</label>
-                            <input
-                                type="number"
-                                name="quantity"
-                                value={bookForm.quantity}
-                                onChange={handleBookInputChange}
-                                min="1"
-                                required
-                            />
-                        </div>
-                        <button type="submit" className="submit-btn">
-                            {editingBook ? 'Обновить книгу' : 'Добавить книгу'}
-                        </button>
-                        {editingBook && (
-                            <button
-                                type="button"
-                                className="cancel-btn"
-                                onClick={() => setEditingBook(null)}
-                            >
-                                Отмена
+
+                        <div className="form-actions">
+                            <button type="submit" className="submit-btn">
+                                {editingBook ? 'Update Book' : 'Add Book'}
                             </button>
-                        )}
+
+                            {editingBook && (
+                                <button
+                                    type="button"
+                                    className="cancel-btn"
+                                    onClick={() => setEditingBook(null)}
+                                >
+                                    Cancel
+                                </button>
+                            )}
+                        </div>
                     </form>
 
-                    <h2>Список книг</h2>
-                    <div className="books-list">
-                        {books.map(book => (
-                            <div key={book.id} className="book-card">
-                                <div className="book-info">
+                    <h2>Books ({displayedBooks.length})</h2>
+                    <div className="admin-books-grid">
+                        {displayedBooks.map(book => (
+                            <div key={book.id} className="admin-book-card">
+                                <div className="book-header">
                                     <h3>{book.title}</h3>
-                                    <p>Автор: {book.author}</p>
-                                    <p>Жанр: {book.genre || 'Не указан'}</p>
-                                    <p>Доступно: {book.available_quantity}/{book.quantity}</p>
+                                    <p className="author">by {book.author}</p>
                                 </div>
+
+                                <div className="book-details">
+                                    {book.isbn && <p><strong>ISBN:</strong> {book.isbn}</p>}
+                                    {book.genre && <p><strong>Genre:</strong> {book.genre}</p>}
+                                    {book.publication_year && (
+                                        <p><strong>Year:</strong> {book.publication_year}</p>
+                                    )}
+                                    <p><strong>Available:</strong> {book.available_quantity}/{book.quantity}</p>
+                                </div>
+
                                 <div className="book-actions">
                                     <button
                                         className="edit-btn"
-                                        onClick={() => handleEditBook(book)}
+                                        onClick={() => {
+                                            setEditingBook(book);
+                                            setBookForm({
+                                                title: book.title,
+                                                author: book.author,
+                                                isbn: book.isbn || '',
+                                                genre: book.genre || '',
+                                                publication_year: book.publication_year || '',
+                                                quantity: book.quantity
+                                            });
+                                        }}
                                     >
-                                        Редактировать
+                                        Edit
                                     </button>
                                     <button
                                         className="delete-btn"
                                         onClick={() => handleDeleteBook(book.id)}
                                     >
-                                        Удалить
+                                        Delete
                                     </button>
                                 </div>
                             </div>
                         ))}
+                    </div>
+                </div>
+            ) : (
+                <div className="admin-content">
+                    <form onSubmit={handleCreateUser} className="admin-form">
+                        <h2>Add New User</h2>
+
+                        <div className="form-group">
+                            <label>Name*:</label>
+                            <input
+                                type="text"
+                                value={userForm.name}
+                                onChange={(e) => setUserForm({...userForm, name: e.target.value})}
+                                required
+                            />
+                        </div>
+
+                        <div className="form-group">
+                            <label>Email*:</label>
+                            <input
+                                type="email"
+                                value={userForm.email}
+                                onChange={(e) => setUserForm({...userForm, email: e.target.value})}
+                                required
+                            />
+                        </div>
+
+                        <div className="form-group">
+                            <label>Password*:</label>
+                            <input
+                                type="password"
+                                value={userForm.password}
+                                onChange={(e) => setUserForm({...userForm, password: e.target.value})}
+                                required
+                            />
+                        </div>
+
+                        <div className="form-group">
+                            <label>Role:</label>
+                            <select
+                                value={userForm.role}
+                                onChange={(e) => setUserForm({...userForm, role: e.target.value})}
+                            >
+                                <option value="user">User</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                        </div>
+
+                        <button type="submit" className="submit-btn">
+                            Add User
+                        </button>
+                    </form>
+
+                    <h2>Users ({displayedUsers.length})</h2>
+                    <div className="users-grid">
+                        {displayedUsers.map(user => {if(user !== undefined){
+                            return (<div key={user.id} className="admin-card">
+                                <div className="card-content">
+                                    <h3>{user.name}</h3>
+                                    <p>Email: {user.email}</p>
+                                    <p>Role: {user.role}</p>
+                                </div>
+                                <div className="card-actions">
+                                    <button
+                                        className="delete-btn"
+                                        onClick={() => handleDeleteUser(user.id)}
+                                    >
+                                        Delete
+                                    </button>
+                                </div>
+                            </div>)
+                        }}
+
+                        )}
                     </div>
                 </div>
             )}

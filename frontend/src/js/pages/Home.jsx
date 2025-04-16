@@ -1,42 +1,117 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import BookFilters from '../components/BookFilters';
 import '../../css/pages/Home.css';
 
 function Home({ user }) {
-    const [books, setBooks] = useState([]);
+    // States
+    const [allBooks, setAllBooks] = useState([]);
+    const [displayedBooks, setDisplayedBooks] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [successMsg, setSuccessMsg] = useState(null);
+    const [showAll, setShowAll] = useState(false);
+    const [successMsg, setSuccessMsg] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [sortOption, setSortOption] = useState('title');
 
-    const fetchBooks = async () => {
-        try {
-            setLoading(true);
-            setError(null);
-
-            const response = await fetch('http://localhost:5000/books');
-
-            if (!response.ok) {
-                throw new Error('Ошибка загрузки');
-            }
-
-            const result = await response.json();
-
-            if (!result.success || !Array.isArray(result.data)) {
-                throw new Error('Некорректный формат данных');
-            }
-
-            setBooks(result.data); // Устанавливаем все полученные книги
-
-        } catch (err) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
-        }
-    };
-
+    // Loading data
     useEffect(() => {
+        const fetchBooks = async () => {
+            try {
+                const response = await fetch('http://localhost:5000/books?all=true');
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+
+                if (!result.success) {
+                    throw new Error(result.error || 'Invalid data format');
+                }
+
+                setAllBooks(result.data);
+                filterAndSortBooks(result.data, '', 'title', false);
+
+            } catch (err) {
+                setError(err.message);
+                console.error("Book fetch error:", err);
+            } finally {
+                setLoading(false);
+            }
+        };
+
         fetchBooks();
     }, []);
 
+    // Filtering and sorting function
+    const filterAndSortBooks = useCallback((books, searchTerm, sortOption, showAll) => {
+        let filtered = [...books];
+
+        // Filtering by availability
+        if (!showAll) {
+            filtered = filtered.filter(book => book.available_quantity > 0);
+        }
+
+        // Search
+        if (searchTerm) {
+            const term = searchTerm.toLowerCase();
+            filtered = filtered.filter(book => {
+                return (
+                    book.title?.toLowerCase().includes(term) ||
+                    book.author?.toLowerCase().includes(term) ||
+                    book.genre?.toLowerCase().includes(term) ||
+                    book.isbn?.toLowerCase().includes(term) ||
+                    String(book.publication_year)?.includes(term)
+                );
+            });
+        }
+
+        // Sorting
+        switch(sortOption) {
+            case 'title':
+                filtered.sort((a, b) => a.title.localeCompare(b.title));
+                break;
+            case 'title_desc':
+                filtered.sort((a, b) => b.title.localeCompare(a.title));
+                break;
+            case 'author':
+                filtered.sort((a, b) => a.author.localeCompare(b.author));
+                break;
+            case 'author_desc':
+                filtered.sort((a, b) => b.author.localeCompare(a.author));
+                break;
+            case 'available':
+                filtered.sort((a, b) => b.available_quantity - a.available_quantity);
+                break;
+            case 'available_asc':
+                filtered.sort((a, b) => a.available_quantity - b.available_quantity);
+                break;
+            default:
+                break;
+        }
+
+        setDisplayedBooks(filtered);
+    }, []);
+
+    // Handlers for filters
+    const handleSearch = useCallback((term) => {
+        setSearchTerm(term);
+        filterAndSortBooks(allBooks, term, sortOption, showAll);
+    }, [allBooks, sortOption, showAll, filterAndSortBooks]);
+
+    const handleSort = useCallback((option) => {
+        setSortOption(option);
+        filterAndSortBooks(allBooks, searchTerm, option, showAll);
+    }, [allBooks, searchTerm, showAll, filterAndSortBooks]);
+
+    // Switching the display mode
+    const toggleShowAll = useCallback(() => {
+        const newShowAll = !showAll;
+        setShowAll(newShowAll);
+        filterAndSortBooks(allBooks, searchTerm, sortOption, newShowAll);
+    }, [allBooks, searchTerm, sortOption, showAll, filterAndSortBooks]);
+
+    // Borrowing a book
     const handleBorrow = async (bookId) => {
         if (!user) {
             setError('Please login to borrow books');
@@ -44,7 +119,6 @@ function Home({ user }) {
         }
 
         try {
-            setError(null);
             const response = await fetch(
                 `http://localhost:5000/books/${bookId}/borrow`,
                 {
@@ -62,32 +136,25 @@ function Home({ user }) {
                 throw new Error(result.error || 'Borrow failed');
             }
 
-            // Форматируем дату правильно
-            const dueDate = new Date(result.loan.due_date);
-            const formattedDate = dueDate.toLocaleDateString('en-US', {
-                weekday: 'long', // "Monday"
-                month: 'long',   // "January"
-                day: 'numeric',  // "1"
-                year: 'numeric'  // "2023"
-            });
-
-            setBooks(prevBooks =>
-                prevBooks.map(book =>
-                    book.id === bookId
-                        ? { ...book, available_quantity: book.available_quantity - 1 }
-                        : book
-                )
+            // Updating data
+            const updatedBooks = allBooks.map(book =>
+                book.id === bookId
+                    ? { ...book, available_quantity: book.available_quantity - 1 }
+                    : book
             );
 
-            setSuccessMsg(`Book borrowed! Due: ${formattedDate}`);
-            setTimeout(() => setSuccessMsg(null), 5000);
+            setAllBooks(updatedBooks);
+            filterAndSortBooks(updatedBooks, searchTerm, sortOption, showAll);
+
+            setSuccessMsg(`Book borrowed! Due: ${new Date(result.loan.due_date).toLocaleDateString()}`);
+            setTimeout(() => setSuccessMsg(''), 5000);
 
         } catch (err) {
-            console.error('Borrow error:', err);
             setError(err.message);
         }
     };
 
+    // UI states
     if (loading) {
         return (
             <div className="loading-container">
@@ -101,49 +168,103 @@ function Home({ user }) {
         return (
             <div className="error-container">
                 <p>Error: {error}</p>
-                <button onClick={fetchBooks}>Retry</button>
+                <button onClick={() => window.location.reload()}>Try Again</button>
             </div>
         );
     }
 
     return (
         <div className="books-page">
-            {/* Отступ для фиксированного навбара */}
-            <div style={{ height: '70px' }}></div>
+            {/* Filters and sorting */}
+            <BookFilters
+                onSearch={handleSearch}
+                onSort={handleSort}
+            />
 
+            {/* Display control*/}
+            <div className="books-header">
+                <h1>
+                    {showAll ? 'All Books' : 'Available Books'}
+                    <span> ({displayedBooks.length})</span>
+                </h1>
+
+                <button
+                    className={`toggle-btn ${showAll ? 'active' : ''}`}
+                    onClick={toggleShowAll}
+                >
+                    {showAll ? (
+                        <>
+                            <i className="fas fa-eye-slash"></i> Show Available
+                        </>
+                    ) : (
+                        <>
+                            <i className="fas fa-eye"></i> Show All
+                        </>
+                    )}
+                </button>
+            </div>
+
+            {/* Messages */}
             {successMsg && (
                 <div className="success-message">
                     {successMsg}
-                    <button onClick={() => setSuccessMsg(null)}>×</button>
+                    <button onClick={() => setSuccessMsg('')}>&times;</button>
                 </div>
             )}
 
-            <h1 className="page-title">Available Books ({books.length})</h1>
-
+            {/* List of books */}
             <div className="books-grid">
-                {books.map(book => (
-                    <div key={book.id} className="book-card">
-                        <div className="book-cover">
-                            {book.cover_initials || `${book.title.charAt(0)}${book.author.charAt(0)}`}
-                        </div>
+                {displayedBooks.map(book => {
+                    const isAvailable = book.available_quantity > 0;
 
-                        <div className="book-info">
-                            <h3>{book.title}</h3>
-                            <p>by {book.author}</p>
-                            <p>Genre: {book.genre}</p>
-                            {book.publication_year && <p>Year: {book.publication_year}</p>}
-                            <p>Available: {book.available_quantity}/{book.quantity}</p>
-                        </div>
-
-                        <button
-                            className={`borrow-btn ${book.available_quantity <= 0 ? 'disabled' : ''}`}
-                            onClick={() => handleBorrow(book.id)}
-                            disabled={book.available_quantity <= 0 || !user}
+                    return (
+                        <div
+                            key={book.id}
+                            className={`book-card ${!isAvailable ? 'unavailable' : ''}`}
                         >
-                            {book.available_quantity <= 0 ? 'Not Available' : 'Borrow'}
-                        </button>
-                    </div>
-                ))}
+                            <div className="book-cover">
+                                {book.cover_initials || `${book.title.charAt(0)}${book.author.charAt(0)}`}
+                            </div>
+
+                            <div className="book-info">
+                                <h3>{book.title}</h3>
+                                <p className="author">by {book.author}</p>
+
+                                <div className="book-meta">
+                                   <p>{book.genre && <span className="genre">Genre: {book.genre}</span>}</p>
+                                    {book.publication_year && (
+                                        <p>   <span className="year">Publication Year: {book.publication_year}</span></p>
+                                    )}
+                                    {book.isbn && <p>ISBN: {book.isbn}</p>}
+                                </div>
+
+                                <p className="availability">
+                                    Available: {book.available_quantity}/{book.quantity}
+                                </p>
+
+                                {!isAvailable && (
+                                    <div className="unavailable-badge">
+                                        <i className="fas fa-times-circle"></i> Not available
+                                    </div>
+                                )}
+                            </div>
+
+                            <button
+                                className={`borrow-btn ${!isAvailable ? 'disabled' : ''}`}
+                                onClick={() => handleBorrow(book.id)}
+                                disabled={!isAvailable || !user}
+                            >
+                                {isAvailable ? (
+                                    <>
+                                        <i className="fas fa-book-open"></i> Borrow
+                                    </>
+                                ) : (
+                                    'Unavailable'
+                                )}
+                            </button>
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );

@@ -132,7 +132,7 @@
     opacity: 1;
 }
 
-/* Для мобильных устройств */
+/* For mobile devices */
 @media (max-width: 768px) {
     .navbar-links {
         flex-direction: column;

@@ -2,7 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
-import '../css/App.css'; // Изменили путь к CSS
+import '../css/App.css';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 

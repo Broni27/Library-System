@@ -2,22 +2,21 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
-const bcrypt = require('bcryptjs'); // Добавлен для хеширования паролей
-const auth = require('./middleware/auth'); // Предполагается, что это ваш middleware аутентификации
-const pool = require('./db'); // Предполагается, что это ваше подключение к БД
+const bcrypt = require('bcryptjs'); // Added for password hashing
+const auth = require('./middleware/auth'); // Assuming this is your authentication middleware
+const pool = require('./db'); // This is assumed to be your database connection
 const booksRouter = require('./routes/books');
 const usersRouter = require('./routes/users');
-
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Расширенные настройки CORS
+// Advanced CORS settings
 const corsOptions = {
     origin: [
         'http://localhost:3000', // React dev server
-        'http://127.0.0.1:3000', // Альтернативный адрес
+        'http://127.0.0.1:3000', // Alternate address
         'http://localhost:5173', // Vite
-        'http://127.0.0.1:5173'  // Vite альтернативный
+        'http://127.0.0.1:5173'  // Vite alternate.
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: [
@@ -27,18 +26,19 @@ const corsOptions = {
         'Accept'
     ],
     credentials: true,
-    optionsSuccessStatus: 200 // Для старых браузеров
+    optionsSuccessStatus: 200 // For older browsers
 };
 
 // Middleware
-app.use(cors(corsOptions)); // Должно быть ПЕРВЫМ middleware!
+app.use(cors(corsOptions)); // Must be FIRST middleware!
 app.use(morgan('dev'));
 app.use(express.json());
+app.use('/users', usersRouter);
 
-// Явная обработка preflight OPTIONS запросов
+// Explicit processing of preflight OPTIONS requests
 app.options('*', cors(corsOptions));
 
-// Основные маршруты
+// Main routes
 app.use('/books', booksRouter);
 app.use('/users', usersRouter);
 
@@ -47,7 +47,7 @@ app.get('/health', (req, res) => {
     res.json({ status: 'OK' });
 });
 
-// Защищенные админ-маршруты
+// Secure admin routes
 const adminRoutes = express.Router();
 adminRoutes.use(auth);
 adminRoutes.use((req, res, next) => {
@@ -57,7 +57,7 @@ adminRoutes.use((req, res, next) => {
     next();
 });
 
-// Получить всех пользователей
+// Get all users
 adminRoutes.get('/users', async (req, res) => {
     try {
         const [users] = await pool.query(
@@ -69,7 +69,7 @@ adminRoutes.get('/users', async (req, res) => {
     }
 });
 
-// Создать пользователя (админ)
+// Create user (admin)
 adminRoutes.post('/register', async (req, res) => {
     try {
         const { name, email, password, role } = req.body;
@@ -97,7 +97,7 @@ adminRoutes.post('/register', async (req, res) => {
     }
 });
 
-// Удалить пользователя
+// Delete user
 adminRoutes.delete('/users/:id', async (req, res) => {
     try {
         await pool.query('DELETE FROM users WHERE id = ?', [req.params.id]);
@@ -107,10 +107,10 @@ adminRoutes.delete('/users/:id', async (req, res) => {
     }
 });
 
-// Подключаем админ-маршруты
+// Connect admin routes
 app.use('/admin', adminRoutes);
 
-// Обработка ошибок
+// Error handling
 app.use((err, req, res, next) => {
     console.error('⚠️ Server error:', err.stack);
     res.status(500).json({ error: 'Internal server error' });

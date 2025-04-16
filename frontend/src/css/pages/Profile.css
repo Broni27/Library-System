@@ -1,11 +1,11 @@
-/* Основные стили контейнера профиля */
+/* Basic Profile Container Styles */
 .profile-container {
     max-width: 900px;
     margin: 30px auto;
     padding: 0 20px;
 }
 
-/* Секция профиля пользователя */
+/* User profile section */
 .profile-section {
     background: #ffffff;
     border-radius: 12px;
@@ -27,7 +27,7 @@
     color: #2c3e50;
 }
 
-/* Кнопки */
+/* Buttons */
 .edit-button,
 .cancel-button,
 .save-button {
@@ -70,7 +70,7 @@
     background-color: #27ae60;
 }
 
-/* Форма редактирования */
+/* Edit Form */
 .profile-form {
     display: flex;
     flex-direction: column;
@@ -109,7 +109,7 @@
     font-size: 0.9rem;
 }
 
-/* Информация о пользователе */
+/* User Information */
 .profile-info {
     background: #f8f9fa;
     padding: 20px;
@@ -135,7 +135,7 @@
     font-size: 1rem;
 }
 
-/* Секция займов */
+/* Loan Section */
 .loans-section {
     background: #ffffff;
     border-radius: 12px;
@@ -157,7 +157,7 @@
     font-size: 1.1rem;
 }
 
-/* Стили для карточек книг */
+/* Styles for book cards */
 .loans-list {
     display: flex;
     flex-direction: column;
@@ -256,7 +256,7 @@
     cursor: not-allowed;
 }
 
-/* Состояния загрузки и ошибок */
+/* Boot and error states */
 .loading-container {
     text-align: center;
     padding: 40px 0;
@@ -294,3 +294,48 @@
 
 .mr-1 { margin-right: 0.25rem; }
 .mr-2 { margin-right: 0.5rem; }
+
+.delete-account-button{
+    margin-top: 10px;
+    padding: 8px 16px;
+    background: #e74c3c;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+
+}
+.delete-account-button:hover {
+    background: #c0392b;
+    transform: translateY(-2px);
+}
+.delete-button{
+    margin-top: 10px;
+    padding: 8px 16px;
+    background: #e74c3c;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.delete-button:hover {
+    background: #c0392b;
+    transform: translateY(-2px);
+}
+.cancel-delete-account-button{
+    color: white;
+    background-color: #3498db;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+.cancel-delete-account-button:hover {
+    background-color: #2980b9;
+    transform: translateY(-2px);
+}

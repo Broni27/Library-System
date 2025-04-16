@@ -19,7 +19,7 @@ const Navbar = ({ user, setUser }) => {
             <div className="navbar-links">
                 <Link to="/books" className="nav-link">Books</Link>
 
-                {/* Явная ссылка на профиль */}
+                {/* Profile link */}
                 {user && (
                     <Link to={`/profile/${user.id}`} className="nav-link">Profile</Link>
                 )}

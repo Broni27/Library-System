@@ -2,92 +2,79 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 const auth = require('../middleware/auth');
-const { logDatabaseError } = require('../utils/logger'); // Убедитесь что путь правильный
 
-// Получение списка доступных книг
+/**
+ * GET /books - Get a list of books
+ * Query parameters:
+ * @param {string} search - Search by title/author
+ * @param {boolean} all - Show all books (true) or only available (false)
+ */
 router.get('/', async (req, res) => {
     try {
-        const { search = '' } = req.query;
+        const {search = '', all = 'false'} = req.query;
 
-        // Основной запрос без LIMIT
+        // Log parameters for debugging
+        console.log(`[GET /books] Parameters: search="${search}", all=${all}`);
+
+        // Basic query
         let query = `
-            SELECT
-                id, title, author, isbn, genre,
-                publication_year, quantity,
-                available_quantity, cover_initials
+            SELECT id,
+                   title,
+                   author,
+                   isbn,
+                   genre,
+                   publication_year,
+                   quantity,
+                   available_quantity,
+                   cover_initials
             FROM books
-            WHERE available_quantity > 0
         `;
 
         const params = [];
 
+        // Filter conditions
+        const conditions = [];
+
+        // Filter by availability (if all books are not requested)
+        if (all.toLowerCase() !== 'true') {
+            conditions.push('available_quantity > 0');
+        }
+
+        // Search filter
         if (search) {
-            query += ` AND (title LIKE ? OR author LIKE ?)`;
+            conditions.push('(title LIKE ? OR author LIKE ?)');
             params.push(`%${search}%`, `%${search}%`);
         }
 
-        query += ` ORDER BY title`; // Сортировка по названию
+        // Add conditions to the query
+        if (conditions.length > 0) {
+            query += ' WHERE ' + conditions.join(' AND ');
+        }
 
-        // Выполняем запрос
+        // Sorting
+        query += ' ORDER BY title ASC';
+
+        // Execute the query
         const [books] = await pool.query(query, params);
 
+        // Log the result (first 3 books for example)
+        console.log(`[GET /books] Found books: ${books.length}. Example:`, books.slice(0, 3));
+
         res.json({
             success: true,
-            data: books // Все найденные книги
+            data: books
         });
 
     } catch (err) {
-        console.error('Ошибка при загрузке книг:', err);
+        console.error('[GET /books] Error:', err);
         res.status(500).json({
             success: false,
-            error: 'Не удалось загрузить книги'
+            error: 'Error loading books'
         });
     }
 });
 
-// Получение детальной информации о книге
-router.get('/:id', async (req, res) => {
-    try {
-        const bookId = parseInt(req.params.id);
-        if (isNaN(bookId)) {
-            return res.status(400).json({
-                success: false,
-                error: 'Некорректный ID книги'
-            });
-        }
-
-        const [books] = await pool.query(
-            `SELECT
-                 b.*,
-                 (SELECT COUNT(*) FROM loans
-                  WHERE book_id = b.id AND is_returned = 0) as borrowed_count
-             FROM books b
-             WHERE b.id = ?`,
-            [bookId]
-        );
-
-        if (books.length === 0) {
-            return res.status(404).json({
-                success: false,
-                error: 'Книга не найдена'
-            });
-        }
-
-        res.json({
-            success: true,
-            book: books[0]
-        });
-
-    } catch (err) {
-        logDatabaseError(`GET /books/${req.params.id}`, err);
-        res.status(500).json({
-            success: false,
-            error: 'Ошибка при получении информации о книге'
-        });
-    }
-});
-
-// Взятие книги в займ
+// Borrowing a book
 router.post('/:id/borrow', auth, async (req, res) => {
     const connection = await pool.getConnection();
     try {
@@ -95,59 +82,62 @@ router.post('/:id/borrow', auth, async (req, res) => {
         const userId = req.user.id;
 
         if (isNaN(bookId)) {
-            throw new Error('Некорректный ID книги');
+            throw new Error('Incorrect book ID');
         }
 
         await connection.beginTransaction();
 
-        // 1. Проверяем доступность книги с блокировкой строки
+        // 1. Check the availability of the book with line locking
         const [[book]] = await connection.query(
-            `SELECT available_quantity FROM books
+            `SELECT available_quantity
+             FROM books
              WHERE id = ? FOR UPDATE`,
             [bookId]
         );
 
         if (!book || book.available_quantity <= 0) {
-            throw new Error('Книга недоступна для взятия');
+            throw new Error(`Book is not available for pickup`);
         }
 
-        // 2. Проверяем лимит пользователя
+        // 2. Check user limit
         const [[activeLoans]] = await connection.query(
-            `SELECT COUNT(*) as count FROM loans
+            `SELECT COUNT(*) as count
+             FROM loans
              WHERE user_id = ? AND is_returned = 0`,
             [userId]
         );
 
         if (activeLoans.count >= 5) {
-            throw new Error('Достигнут лимит взятых книг (максимум 5)');
+            throw new Error('The limit of books borrowed has been reached (maximum 5)');
         }
 
-        // 3. Создаем запись о займе
+        // 3. Create a loan record
         const dueDate = new Date();
-        dueDate.setDate(dueDate.getDate() + 14); // Срок - 14 дней
+        dueDate.setDate(dueDate.getDate() + 14); // The deadline is 14 days
 
         const [loanResult] = await connection.query(
-            `INSERT INTO loans (
-                user_id, book_id, borrowed_date, due_date
-            ) VALUES (?, ?, NOW(), ?)`,
+            `INSERT INTO loans (user_id, book_id, borrowed_date, due_date)
+             VALUES (?, ?, NOW(), ?)`,
             [userId, bookId, dueDate]
         );
 
-        // 4. Уменьшаем количество доступных книг
+        // 4. Reduce the number of available books
         await connection.query(
-            `UPDATE books SET
-                available_quantity = available_quantity - 1
+            `UPDATE books
+             SET available_quantity = available_quantity - 1
              WHERE id = ?`,
             [bookId]
         );
 
         await connection.commit();
 
-        // 5. Формируем ответ
+        // 5. Forming a response
         const [[updatedBook]] = await pool.query(
             `SELECT b.*,
-                    (SELECT COUNT(*) FROM loans
-                     WHERE book_id = b.id AND is_returned = 0) as borrowed_count
+                    (SELECT COUNT(*)
+                     FROM loans
+                     WHERE book_id = b.id
+                       AND is_returned = 0) as borrowed_count
              FROM books b
              WHERE b.id = ?`,
             [bookId]
@@ -171,14 +161,14 @@ router.post('/:id/borrow', auth, async (req, res) => {
         });
         res.status(400).json({
             success: false,
-            error: err.message || 'Ошибка при взятии книги'
+            error: err.message || 'Book retrieval error'
         });
     } finally {
         connection.release();
     }
 });
 
-// Возврат книги (исправленная и надежная версия)
+// Return of the book (corrected and reliable version)
 router.post('/loans/:id/return', auth, async (req, res) => {
     const connection = await pool.getConnection();
     try {
@@ -186,25 +176,30 @@ router.post('/loans/:id/return', auth, async (req, res) => {
         const userId = req.user.id;
 
         if (isNaN(loanId)) {
-            throw new Error('Некорректный ID займа');
+            throw new Error('Incorrect loan ID');
         }
 
         console.log(`[RETURN] User ${userId} returning loan ${loanId}`);
 
         await connection.beginTransaction();
 
-        // 1. Находим активный займ с блокировкой
+        // 1. Find the active blocked loan
         const [[loan]] = await connection.query(
-            `SELECT id, book_id FROM loans
-             WHERE id = ? AND user_id = ? AND is_returned = 0
-                 LIMIT 1 FOR UPDATE`,
+            `SELECT id, book_id
+             FROM loans
+             WHERE id = ?
+               AND user_id = ?
+               AND is_returned = 0 LIMIT 1 FOR
+            UPDATE`,
             [loanId, userId]
         );
 
         if (!loan) {
-            // Диагностический запрос
+            // Diagnostic Inquiry
             const [[existingLoan]] = await connection.query(
-                `SELECT id, user_id, is_returned FROM loans WHERE id = ?`,
+                `SELECT id, user_id, is_returned
+                 FROM loans
+                 WHERE id = ?`,
                 [loanId]
             );
 
@@ -214,22 +209,22 @@ router.post('/loans/:id/return', auth, async (req, res) => {
                 userId: userId
             });
 
-            throw new Error('Активный займ не найден. Возможные причины: уже возвращен, не принадлежит вам или неверный ID');
+            throw new Error('Active loan not found. Possible reasons: already returned, does not belong to you or wrong ID');
         }
 
-        // 2. Помечаем займ как возвращенный
+        // 2. Mark the loan as repaid
         await connection.query(
-            `UPDATE loans SET
-                              returned_date = NOW(),
-                              is_returned = 1
+            `UPDATE loans
+             SET returned_date = NOW(),
+                 is_returned   = 1
              WHERE id = ?`,
             [loan.id]
         );
 
-        // 3. Увеличиваем количество доступных книг
+        // 3. Increase the number of available books
         await connection.query(
-            `UPDATE books SET
-                available_quantity = available_quantity + 1
+            `UPDATE books
+             SET available_quantity = available_quantity + 1
              WHERE id = ?`,
             [loan.book_id]
         );
@@ -238,7 +233,7 @@ router.post('/loans/:id/return', auth, async (req, res) => {
 
         res.json({
             success: true,
-            message: 'Книга успешно возвращена',
+            message: 'The book has been successfully returned',
             returnedLoanId: loan.id,
             bookId: loan.book_id
         });
@@ -265,45 +260,44 @@ router.post('/loans/:id/return', auth, async (req, res) => {
     }
 });
 
-// Добавление новой книги (только для администраторов)
+// Adding a new book (for administrators only)
 router.post('/', auth, async (req, res) => {
     try {
-        // Проверка прав администратора
+        // Check administrator rights
         if (req.user.role !== 'admin') {
             return res.status(403).json({
                 success: false,
-                error: 'Доступ запрещен. Требуются права администратора'
+                error: 'Access denied. Administrator rights required'
             });
         }
 
-        // Валидация данных
-        const { title, author, isbn, genre, publication_year, quantity } = req.body;
+        // Data validation
+        const {title, author, isbn, genre, publication_year, quantity} = req.body;
         const requiredFields = ['title', 'author', 'quantity'];
         const missingFields = requiredFields.filter(field => !req.body[field]);
 
         if (missingFields.length > 0) {
             return res.status(400).json({
                 success: false,
-                error: `Не заполнены обязательные поля: ${missingFields.join(', ')}`
+                error: `Required fields are not filled in: ${missingFields.join(', ')}`
             });
         }
 
         if (isNaN(quantity) || quantity <= 0) {
             return res.status(400).json({
                 success: false,
-                error: 'Количество должно быть положительным числом'
+                error: 'The quantity must be a positive number'
             });
         }
 
-        // Создание записи о книге
+        // Creating a book record
         const coverInitials = `${title.charAt(0)}${author.charAt(0)}`.toUpperCase();
 
         const [result] = await pool.query(
-            `INSERT INTO books (
-                title, author, isbn, genre,
-                publication_year, quantity,
-                available_quantity, cover_initials
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO books (title, author, isbn, genre,
+                                publication_year, quantity,
+                                available_quantity, cover_initials)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 title,
                 author,
@@ -316,9 +310,11 @@ router.post('/', auth, async (req, res) => {
             ]
         );
 
-        // Получаем созданную книгу
+        // Getting the created book
         const [[newBook]] = await pool.query(
-            `SELECT * FROM books WHERE id = ?`,
+            `SELECT *
+             FROM books
+             WHERE id = ?`,
             [result.insertId]
         );
 
@@ -330,61 +326,63 @@ router.post('/', auth, async (req, res) => {
     } catch (err) {
         console.error('[ADD BOOK ERROR]', err);
 
-        // Обработка ошибки дублирования ISBN
+        // Handling ISBN duplication error
         if (err.code === 'ER_DUP_ENTRY') {
             return res.status(400).json({
                 success: false,
-                error: 'Книга с таким ISBN уже существует'
+                error: 'A book with this ISBN already exists'
             });
         }
 
         res.status(500).json({
             success: false,
-            error: 'Ошибка при добавлении книги'
+            error: 'Error when adding a book'
         });
     }
 });
 
-// Обновление книги (PUT /books/:id)
+// Book update (PUT /books/:id)
 router.put('/:id', auth, async (req, res) => {
     try {
-        // Проверка прав администратора
+        // Check administrator rights
         if (req.user.role !== 'admin') {
             return res.status(403).json({
                 success: false,
-                error: 'Требуются права администратора'
+                error: 'Administrator rights required'
             });
         }
         const bookId = parseInt(req.params.id);
         if (isNaN(bookId)) {
             return res.status(400).json({
                 success: false,
-                error: 'Некорректный ID книги'
+                error: 'Incorrect book ID'
             });
         }
-        const { title, author, isbn, genre, quantity } = req.body;
-        // Валидация
+        const {title, author, isbn, genre, quantity} = req.body;
+        // Validation
         if (!title || !author || !quantity) {
             return res.status(400).json({
                 success: false,
-                error: 'Название, автор и количество обязательны'
+                error: 'Title, author and quantity are mandatory'
             });
         }
-        // Обновление книги
+        // Book Update
         await pool.query(
-            `UPDATE books SET 
-                title = ?, 
-                author = ?, 
-                isbn = ?, 
-                genre = ?, 
-                quantity = ?,
-                available_quantity = quantity - (SELECT COUNT(*) FROM loans WHERE book_id = ? AND is_returned = 0)
+            `UPDATE books
+             SET title              = ?,
+                 author             = ?,
+                 isbn               = ?,
+                 genre              = ?,
+                 quantity           = ?,
+                 available_quantity = quantity - (SELECT COUNT(*) FROM loans WHERE book_id = ? AND is_returned = 0)
              WHERE id = ?`,
             [title, author, isbn || null, genre || null, quantity, bookId, bookId]
         );
-        // Получаем обновленную книгу
+        // Getting an updated book
         const [[book]] = await pool.query(
-            `SELECT * FROM books WHERE id = ?`,
+            `SELECT *
+             FROM books
+             WHERE id = ?`,
             [bookId]
         );
         res.json({
@@ -395,54 +393,57 @@ router.put('/:id', auth, async (req, res) => {
         console.error('[UPDATE BOOK ERROR]', err);
         res.status(500).json({
             success: false,
-            error: 'Ошибка при обновлении книги'
+            error: 'Error when updating the book'
         });
     }
 });
 
-// Удаление книги (DELETE /books/:id)
+// Deleting a book (DELETE /books/:id)
 router.delete('/:id', auth, async (req, res) => {
     try {
-        // Проверка прав администратора
+        // Checking administrator rights
         if (req.user.role !== 'admin') {
             return res.status(403).json({
                 success: false,
-                error: 'Требуются права администратора'
+                error: 'Administrator rights required'
             });
         }
         const bookId = parseInt(req.params.id);
         if (isNaN(bookId)) {
             return res.status(400).json({
                 success: false,
-                error: 'Некорректный ID книги'
+                error: 'Incorrect book ID'
             });
         }
-        // Проверяем, есть ли активные займы этой книги
+        // Checking to see if there are any active loans of this book
         const [[activeLoans]] = await pool.query(
-            `SELECT COUNT(*) as count FROM loans 
+            `SELECT COUNT(*) as count
+             FROM loans
              WHERE book_id = ? AND is_returned = 0`,
             [bookId]
         );
         if (activeLoans.count > 0) {
             return res.status(400).json({
                 success: false,
-                error: 'Нельзя удалить книгу, так как она находится на руках у читателей'
+                error: 'You can\'t delete a book because it is in the hands of readers'
             });
         }
-        // Удаляем книгу
+        // Deleting the book
         await pool.query(
-            `DELETE FROM books WHERE id = ?`,
+            `DELETE
+             FROM books
+             WHERE id = ?`,
             [bookId]
         );
         res.json({
             success: true,
-            message: 'Книга успешно удалена'
+            message: 'The book has been successfully deleted'
         });
     } catch (err) {
         console.error('[DELETE BOOK ERROR]', err);
         res.status(500).json({
             success: false,
-            error: 'Ошибка при удалении книги'
+            error: 'Error when deleting a book'
         });
     }
 });
